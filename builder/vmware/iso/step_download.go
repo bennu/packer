@@ -20,29 +20,26 @@ func (s *stepDownload) Run(state multistep.StateBag) multistep.StepAction {
 	driver := state.Get("driver").(vmwcommon.Driver)
 	ui := state.Get("ui").(packer.Ui)
 
-	esx5, ok := driver.(*ESX5Driver)
-	if !ok {
-		return multistep.ActionContinue
-	}
+	if esx5, ok := driver.(*ESX5Driver); ok {
+		ui.Say("Verifying remote cache")
 
-	ui.Say("Verifying remote cache")
+		for _, url := range s.step.Url {
+			targetPath := s.step.TargetPath
 
-	for _, url := range s.step.Url {
-		targetPath := s.step.TargetPath
+			if targetPath == "" {
+				hash := sha1.Sum([]byte(url))
+				cacheKey := fmt.Sprintf("%s.%s", hex.EncodeToString(hash[:]), s.step.Extension)
+				targetPath = cache.Lock(cacheKey)
+				cache.Unlock(cacheKey)
+			}
 
-		if targetPath == "" {
-			hash := sha1.Sum([]byte(url))
-			cacheKey := fmt.Sprintf("%s.%s", hex.EncodeToString(hash[:]), s.step.Extension)
-			targetPath = cache.Lock(cacheKey)
-			cache.Unlock(cacheKey)
-		}
+			remotePath := esx5.cachePath(targetPath)
 
-		remotePath := esx5.cachePath(targetPath)
-
-		if esx5.verifyChecksum(s.step.ChecksumType, s.step.Checksum, remotePath) {
-			state.Put(s.step.ResultKey, "skip_upload:"+remotePath)
-			ui.Message("Remote cache verified, skipping download step")
-			return multistep.ActionContinue
+			if esx5.verifyChecksum(s.step.ChecksumType, s.step.Checksum, remotePath) {
+				state.Put(s.step.ResultKey, "skip_upload:"+remotePath)
+				ui.Message("Remote cache verified, skipping download step")
+				return multistep.ActionContinue
+			}
 		}
 	}
 
